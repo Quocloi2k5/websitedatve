@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { setUser } from '../../../redux/slices/userSlice'
 import { FaEye, FaEyeSlash, FaEnvelope, FaLock } from 'react-icons/fa'
 import './login.css'
+import { apiUrl } from '../../../utils/apiUrl'
 
 const formatCountdown = (totalSeconds) => {
   const safe = Math.max(0, Number(totalSeconds || 0))
@@ -98,7 +99,7 @@ export default function Login() {
     setMessage('')
 
     try {
-      const res  = await fetch('/api/auth/user-login', {
+      const res  = await fetch(apiUrl('/auth/user-login'), {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ email, password }),

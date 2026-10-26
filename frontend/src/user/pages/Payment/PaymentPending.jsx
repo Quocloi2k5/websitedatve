@@ -3,6 +3,7 @@ import { useLocation, useNavigate, Link } from 'react-router-dom'
 import { FaClock, FaStar, FaTicketAlt, FaHome, FaUser } from 'react-icons/fa'
 import './PaymentPending.css'
 import { buildVietQRImageUrl, buildVietQROnlyImageUrl, VIETQR_BANK_BIN } from '../../utils/vietqr'
+import { apiUrl } from '../../../utils/apiUrl'
 
 /**
  * Trang "Đang chờ xử lý" hiển thị ngay sau khi user bấm "Thanh toán".
@@ -69,7 +70,7 @@ export default function PaymentPending() {
       if (orderId && userId) {
         try {
           const token = localStorage.getItem('token')
-          await fetch(`/api/user/${userId}/bookings/${orderId}/confirm-card`, {
+          await fetch(apiUrl(`/user/${userId}/bookings/${orderId}/confirm-card`), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

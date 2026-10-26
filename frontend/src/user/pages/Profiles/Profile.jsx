@@ -11,6 +11,7 @@ import {
 import './profile.css'
 import { setUser } from '../../../redux/slices/userSlice'
 import { BIRTH_DATE_ERROR, getBirthDateBounds, isValidBirthDate } from '../../../utils/birthDate'
+import { apiUrl } from '../../../utils/apiUrl'
 import {
   userBookingService,
   userNotificationService,
@@ -284,7 +285,7 @@ export default function Profile() {
       if (!profile?.id) return
       try {
         const token = localStorage.getItem('token')
-        const res = await fetch(`/api/points/user/${profile.id}`, {
+        const res = await fetch(apiUrl(`/points/user/${profile.id}`), {
           headers: { Authorization: `Bearer ${token || ''}` },
         })
         if (!res.ok) return

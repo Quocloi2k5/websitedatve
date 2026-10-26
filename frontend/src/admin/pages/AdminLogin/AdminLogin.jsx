@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { setUser } from '../../../redux/slices/userSlice'
 import { FaEye, FaEyeSlash, FaEnvelope, FaLock, FaShieldAlt } from 'react-icons/fa'
 import './admin-login.css'
+import { apiUrl } from '../../../utils/apiUrl'
 
 const parseResponseSafe = async (res) => {
   const raw = await res.text()
@@ -43,7 +44,7 @@ export default function AdminLogin() {
     }
 
     try {
-      const res  = await fetch('/api/auth/login', {
+      const res  = await fetch(apiUrl('/auth/login'), {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ email: trimmedEmail, password: trimmedPassword }),

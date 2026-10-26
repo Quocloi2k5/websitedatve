@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { FaEye, FaEyeSlash, FaEnvelope, FaLock, FaUser, FaPhone, FaCalendar } from 'react-icons/fa'
 import './register.css'
 import { BIRTH_DATE_ERROR, getBirthDateBounds, isValidBirthDate } from '../../../utils/birthDate'
+import { apiUrl } from '../../../utils/apiUrl'
 
 const parseResponseSafe = async (res) => {
   const raw = await res.text()
@@ -72,7 +73,7 @@ export default function Register() {
     }
 
     try {
-      const res = await fetch('/api/auth/register', {
+      const res = await fetch(apiUrl('/auth/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -114,7 +115,7 @@ export default function Register() {
     setMessage('')
     setMessageType('')
     try {
-      const res = await fetch('/api/auth/register/confirm-otp', {
+      const res = await fetch(apiUrl('/auth/register/confirm-otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: registrationOtp.userId, otpCode }),
@@ -139,7 +140,7 @@ export default function Register() {
     setMessage('')
     setMessageType('')
     try {
-      const res = await fetch('/api/auth/register/resend-otp', {
+      const res = await fetch(apiUrl('/auth/register/resend-otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: registrationOtp.userId }),

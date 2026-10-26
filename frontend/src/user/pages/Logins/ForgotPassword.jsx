@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FaEnvelope } from 'react-icons/fa'
 import './forgot-reset.css'
+import { apiUrl } from '../../../utils/apiUrl'
 
 const formatCountdown = (totalSeconds) => {
   const safe = Math.max(0, Number(totalSeconds || 0))
@@ -47,7 +48,7 @@ export default function ForgotPassword() {
     setMessage('')
 
     try {
-      const res = await fetch('/api/auth/forgot-password', {
+      const res = await fetch(apiUrl('/auth/forgot-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim() }),
