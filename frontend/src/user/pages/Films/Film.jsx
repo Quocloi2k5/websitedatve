@@ -6,13 +6,14 @@ import AutoMarqueeText from "../../Components/AutoMarqueeText/AutoMarqueeText";
 import { userMovieService } from "../../services/userApi";
 import { getActiveHomeBanners, hydrateHomeBannerImages } from "../../utils/homeBanners";
 import { formatMovieTitle } from "../../../utils/movieTitle";
+import { toAbsoluteAssetUrl } from "../../../utils/api";
 
 const VISITED_TAG_STORAGE_KEY = "sweetstar_user_tag_preferences";
 
 const normalizeMovieItem = (m) => ({
   id: m.movie_id,
   title: formatMovieTitle(m.title),
-  poster: m.poster,
+  poster: toAbsoluteAssetUrl(m.poster),
   ageLimit: Number(m.age_limit || 0),
   rating:
     Number.isFinite(Number(m.rating)) && Number(m.review_count) > 0

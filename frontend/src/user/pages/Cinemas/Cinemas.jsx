@@ -4,8 +4,9 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import QuickBookWidget from "../../Components/QuickBookWidget/QuickBookWidget";
 import { userCinemaService } from "../../services/userApi";
 import { getActiveHomeBanners, hydrateHomeBannerImages } from "../../utils/homeBanners";
+import { toAbsoluteAssetUrl } from "../../../utils/api";
 
-const FALLBACK_BANNER = "/uploads/banners/banner1.jpg";
+const FALLBACK_BANNER = toAbsoluteAssetUrl("/uploads/banners/banner1.jpg");
 
 const getRoomTypeLabel = (type) => {
   if (!type) return "Phòng chiếu";
@@ -268,7 +269,7 @@ export default function Cinemas() {
                       <div className="cinema-card-top">
                         <div className="cinema-cover">
                           <img
-                            src={cinema.image || featuredBanner?.image || FALLBACK_BANNER}
+                            src={toAbsoluteAssetUrl(cinema.image || featuredBanner?.image || FALLBACK_BANNER)}
                             alt={cinema.cinema_name}
                           />
                         </div>

@@ -11,6 +11,7 @@ import { setSelectedCinema } from '../../../redux/slices/cinemaSlice'
 import { clearUser } from '../../../redux/slices/userSlice'
 import { userCinemaService, userNotificationService, userMovieService } from '../../services/userApi'
 import { formatMovieTitle } from '../../../utils/movieTitle'
+import { toAbsoluteAssetUrl } from '../../../utils/api'
 import './nav.css'
 
 const NAV_ITEMS = [
@@ -410,7 +411,7 @@ export default function Navbar() {
                     >
                       <div
                         className='search-movie-poster'
-                        style={m.poster ? { backgroundImage: `url(${m.poster})` } : undefined}
+                        style={m.poster ? { backgroundImage: `url(${toAbsoluteAssetUrl(m.poster)})` } : undefined}
                       />
                       <div className='search-movie-info'>
                         <span className='search-movie-title'>{formatMovieTitle(m.title)}</span>
@@ -437,7 +438,7 @@ export default function Navbar() {
                 >
                   <div
                     className='search-movie-poster'
-                    style={m.poster ? { backgroundImage: `url(${m.poster})` } : undefined}
+                    style={m.poster ? { backgroundImage: `url(${toAbsoluteAssetUrl(m.poster)})` } : undefined}
                   />
                   <div className='search-movie-info'>
                     <span className='search-movie-title'>{formatMovieTitle(m.title)}</span>

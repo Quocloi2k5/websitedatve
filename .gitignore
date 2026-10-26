@@ -34,5 +34,3 @@ frontend/.env
 .dbg/
 tmp/
 
-# Uploaded runtime media stays outside Git; store it separately in production.
-backend/uploads/

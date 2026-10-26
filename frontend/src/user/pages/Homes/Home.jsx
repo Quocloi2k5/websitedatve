@@ -202,7 +202,7 @@ const buildHeroBackground = (poster, fallbackBg) =>
 const normalizeMovie = (movie) => ({
   id: movie.movie_id,
   title: formatMovieTitle(movie.title),
-  poster: movie.poster || '',
+  poster: toAbsoluteAssetUrl(movie.poster || ''),
   status: movie.status,
   releaseDate: movie.release_date,
   duration: Number(movie.duration || 0),
