@@ -16,7 +16,10 @@ export function toAbsoluteAssetUrl(value) {
   if (!value) return "";
   if (/^https?:\/\//i.test(value)) return value;
 
-  const origin = getApiOrigin();
+  // Uploaded images and videos can live in durable object storage (for example,
+  // Cloudflare R2) instead of the Render service's ephemeral filesystem.
+  const mediaBase = (import.meta.env.VITE_MEDIA_URL || "").replace(/\/+$/, "");
+  const origin = mediaBase || getApiOrigin();
   if (!origin) return value;
 
   if (value.startsWith("/")) {

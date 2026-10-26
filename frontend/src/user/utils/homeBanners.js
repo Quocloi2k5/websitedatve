@@ -1,4 +1,5 @@
 import { getBannerImage } from "../../utils/bannerImageStore";
+import { toAbsoluteAssetUrl } from "../../utils/api";
 
 const FALLBACK_IMAGES = [
   "/uploads/banners/banner1.jpg",
@@ -12,7 +13,7 @@ export const getActiveHomeBanners = () => {
     if (active.length > 0) {
       return active.map((banner, index) => ({
         ...banner,
-        image: banner.image || FALLBACK_IMAGES[index % FALLBACK_IMAGES.length],
+        image: toAbsoluteAssetUrl(banner.image || FALLBACK_IMAGES[index % FALLBACK_IMAGES.length]),
       }));
     }
   } catch {
@@ -21,7 +22,7 @@ export const getActiveHomeBanners = () => {
 
   return FALLBACK_IMAGES.map((image, index) => ({
     id: `fallback-${index}`,
-    image,
+    image: toAbsoluteAssetUrl(image),
     title: "Sweetstar Movie",
     subtitle: "Trải nghiệm điện ảnh trọn vẹn cùng những bộ phim mới nhất.",
     active: true,
@@ -32,7 +33,7 @@ export const hydrateHomeBannerImages = async (banners) => Promise.all(
   banners.map(async (banner) => {
     try {
       const storedImage = await getBannerImage(banner.imageKey);
-      return storedImage ? { ...banner, image: storedImage } : banner;
+      return storedImage ? { ...banner, image: toAbsoluteAssetUrl(storedImage) } : banner;
     } catch {
       return banner;
     }

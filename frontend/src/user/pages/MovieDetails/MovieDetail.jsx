@@ -4,6 +4,7 @@ import { useSelector } from 'react-redux';
 import ReviewSection from '../../Components/ReviewSection';
 import { userMovieService } from '../../services/userApi';
 import { formatMovieTitle } from '../../../utils/movieTitle';
+import { toAbsoluteAssetUrl } from '../../../utils/api';
 import './MovieDetail.css';
 
 const VISITED_TAG_STORAGE_KEY = 'sweetstar_user_tag_preferences';
@@ -168,8 +169,8 @@ export default function MovieDetail() {
   const [loadingMovie, setLoadingMovie] = useState(false);
   const [movieError, setMovieError] = useState(null);
 
-  const posterSrc = movie?.poster || '';
-  const trailerSrc = movie?.trailer || '';
+  const posterSrc = toAbsoluteAssetUrl(movie?.poster || '');
+  const trailerSrc = toAbsoluteAssetUrl(movie?.trailer || '');
   const hasTrailer = Boolean(trailerSrc);
   const youtubeTrailerUrl = getYouTubeEmbedUrl(trailerSrc, {
     autoplay: true,
