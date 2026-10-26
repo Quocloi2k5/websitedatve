@@ -1,0 +1,18 @@
+{
+  "name": "sweetstar-movie",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "npm --workspace frontend run dev",
+    "build": "npm --workspace frontend run build",
+    "preview": "npm --workspace frontend run preview",
+    "start:backend": "npm --workspace backend run dev",
+    "install:all": "npm install --workspaces"
+  },
+  "dependencies": {
+    "@ckeditor/ckeditor5-react": "^11.2.0"
+  }
+}

@@ -1,0 +1,574 @@
+/**
+ * ZaloPay Payment Gateway Routes
+ * Tích hợp theo: https://docs.zalopay.vn/docs/guides/payment-acceptance/payment-gateway/intro
+ *
+ * Sandbox credentials (app_id = 2553):
+ *   ZALOPAY_APP_ID   = 2553
+ *   ZALOPAY_KEY1     = PcY4in5zKmuiveAc
+ *   ZALOPAY_KEY2     = kLtgPl8HHhfvMuDHPwKfgfsY4Ydm9eIz
+ *   ZALOPAY_ENDPOINT = https://sb-openapi.zalopay.vn/v2/create
+ *   ZALOPAY_QUERY_ENDPOINT = https://sb-openapi.zalopay.vn/v2/query
+ *   ZALOPAY_CALLBACK_URL   = (ngrok hoặc server URL)/api/zalopay/callback
+ *   ZALOPAY_REDIRECT_URL   = http://localhost:5173/payment/result
+ *   FRONTEND_URL     = http://localhost:5173
+ */
+
+import express from 'express';
+import { createHmac } from 'node:crypto';
+import { db } from '../../../config/db.js';
+import { BookingModel } from '../../admin/models/bookingModel.js';
+import { NotificationModel } from '../../admin/models/notificationModel.js';
+import { authMiddleware, selfOrAdminOnly } from '../../admin/middleware/authMiddleware.js';
+import { sendTicketQrEmail } from '../services/ticketEmailService.js';
+import { requireVerifiedEmail } from '../middleware/requireVerifiedEmail.js';
+
+const router = express.Router();
+
+const getRoleNameByUserId = async (userId) => {
+  const [[row]] = await db.query(
+    `
+    SELECT COALESCE(LOWER(r.role_name), '') AS role_name
+    FROM User u
+    LEFT JOIN Roles r ON r.role_id = u.role_id
+    WHERE u.id = ?
+    LIMIT 1
+  `,
+    [Number(userId || 0)],
+  );
+  return String(row?.role_name || '');
+};
+
+const normalizeRoleName = (value) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '');
+
+const STAFF_ROLE_BLOCKLIST = new Set([
+  'admin',
+  'staff',
+  'manager',
+  'technician',
+  'employee',
+  'quanly',
+  'nhanvien',
+]);
+
+const isCustomerRoleName = (roleName) => {
+  const normalized = normalizeRoleName(roleName);
+  if (!normalized) return true;
+  return !STAFF_ROLE_BLOCKLIST.has(normalized);
+};
+
+const ensureCustomerRoleByUserId = async (userId) => {
+  const roleName = await getRoleNameByUserId(userId);
+  return isCustomerRoleName(roleName);
+};
+
+const sendBookingSuccessNotification = async ({ userId, booking }) => {
+  const normalizedUserId = Number(userId || 0);
+  if (!normalizedUserId || !booking) return;
+
+  const movieTitle = String(booking.movie_title || 'phim đã chọn');
+  const bookingCode = String(booking.booking_code || '').trim();
+  const showDate = booking.start_time
+    ? new Date(booking.start_time).toLocaleString('vi-VN')
+    : '';
+  const seatCodes = String(booking.seats?.join?.(', ') || booking.seat_codes || '').trim();
+  const dedupeCode = String(bookingCode || booking.booking_id || '').trim();
+
+  const contentParts = [
+    `Bạn đã đặt vé thành công cho \"${movieTitle}\".`,
+    bookingCode ? `Mã vé: ${bookingCode}.` : '',
+    showDate ? `Suất chiếu: ${showDate}.` : '',
+    seatCodes ? `Ghế: ${seatCodes}.` : '',
+  ].filter(Boolean);
+
+  await NotificationModel.createForUser({
+    userId: normalizedUserId,
+    title: 'Đặt vé thành công',
+    content: contentParts.join(' '),
+    type: 'booking',
+    dedupeKey: dedupeCode ? `booking_success:${dedupeCode}` : null,
+  });
+};
+
+// ── Đảm bảo bảng Pending_Payments tồn tại ────────────────────────────────────
+let pendingPaymentsReady = false;
+const ensurePendingPaymentsTable = async () => {
+  if (pendingPaymentsReady) return;
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS Pending_Payments (
+      id             INT AUTO_INCREMENT PRIMARY KEY,
+      app_trans_id   VARCHAR(100) NOT NULL UNIQUE,
+      user_id        INT NOT NULL,
+      movie_id       INT NULL,
+      showtime_id    INT NOT NULL,
+      seat_units     LONGTEXT NOT NULL,
+      food_items     LONGTEXT NOT NULL,
+      promo_code     VARCHAR(100) NULL,
+      payment_method VARCHAR(50) NOT NULL DEFAULT 'zalopay',
+      amount         DECIMAL(12,2) NOT NULL,
+      description    TEXT,
+      created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      expires_at     DATETIME NOT NULL
+    )
+  `);
+  const [columns] = await db.query(
+    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Pending_Payments'",
+  );
+  if (!columns.some((column) => column.COLUMN_NAME === 'promo_code')) {
+    await db.query('ALTER TABLE Pending_Payments ADD COLUMN promo_code VARCHAR(100) NULL AFTER food_items');
+  }
+  const [orderColumns] = await db.query(
+    "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Orders'",
+  );
+  if (!orderColumns.some((column) => column.COLUMN_NAME === 'zalopay_trans_id')) {
+    await db.query('ALTER TABLE Orders ADD COLUMN zalopay_trans_id VARCHAR(100) NULL');
+    await db.query('CREATE INDEX idx_orders_zalopay_trans_id ON Orders (zalopay_trans_id)');
+  }
+  pendingPaymentsReady = true;
+};
+
+// ── Helper: format app_trans_id = YYMMDD_appId_timestamp ─────────────────────
+function makeAppTransId(appId) {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  return `${yy}${mm}${dd}_${appId}_${Date.now()}`;
+}
+
+// ── Helper: build ZaloPay Gateway redirect URL từ zp_trans_token ──────────────
+// Sandbox: https://qcgateway.zalopay.vn/openinapp?order=BASE64({"zptranstoken":"...","appid":553})
+// Production: https://gateway.zalopay.vn/openinapp?order=...
+function buildGatewayUrl(appId, zpTransToken) {
+  if (!zpTransToken) return '';
+  const isSandbox = String(process.env.ZALOPAY_ENDPOINT || '').includes('sb-openapi');
+  const gatewayBase = isSandbox
+    ? 'https://qcgateway.zalopay.vn/openinapp'
+    : 'https://gateway.zalopay.vn/openinapp';
+  const orderObj = { zptranstoken: zpTransToken, appid: Number(appId) };
+  const orderB64 = Buffer.from(JSON.stringify(orderObj)).toString('base64');
+  return `${gatewayBase}?order=${orderB64}`;
+}
+
+const getHttpOrigin = (value) => {
+  if (!value) return '';
+  try {
+    const url = new URL(String(value));
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.origin : '';
+  } catch {
+    return '';
+  }
+};
+
+// Luôn đưa người dùng về đúng website đã bắt đầu thanh toán. Ví dụ, đơn được
+// tạo từ domain production sẽ quay lại domain đó; localhost chỉ dùng khi người
+// dùng thực sự thanh toán trên localhost hoặc request không có Origin/Referer.
+const resolvePaymentRedirectUrl = (req) => {
+  const requestOrigin = getHttpOrigin(req.get('origin'))
+    || getHttpOrigin(req.get('referer'));
+  if (requestOrigin) return `${requestOrigin}/payment/result`;
+
+  const configuredRedirect = String(process.env.ZALOPAY_REDIRECT_URL || '').trim();
+  if (getHttpOrigin(configuredRedirect)) return configuredRedirect;
+
+  const frontendOrigin = getHttpOrigin(process.env.FRONTEND_URL);
+  return `${frontendOrigin || 'http://localhost:5173'}/payment/result`;
+};
+
+const queryZaloPayTransaction = async (appTransId) => {
+  const appId = process.env.ZALOPAY_APP_ID || '553';
+  const key1 = process.env.ZALOPAY_KEY1 || '9phuAOYhan4urywHTh0ndEXiV3pKHr5Q';
+  const endpoint = process.env.ZALOPAY_QUERY_ENDPOINT || 'https://sb-openapi.zalopay.vn/v2/query';
+  const mac = createHmac('sha256', key1)
+    .update(`${appId}|${appTransId}|${key1}`)
+    .digest('hex');
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ app_id: Number(appId), app_trans_id: appTransId, mac }),
+  });
+  return response.json().catch(() => null);
+};
+
+// ── POST /:userId/payments/zalopay — Tạo đơn hàng ZaloPay ────────────────────
+// KHÔNG tạo booking ngay — chỉ lưu pending data, tạo ZaloPay order
+// Booking thật được tạo trong callback khi thanh toán thành công
+router.post('/:userId/payments/zalopay', authMiddleware, selfOrAdminOnly, requireVerifiedEmail, async (req, res) => {
+  try {
+    await ensurePendingPaymentsTable();
+
+    const {
+      amount, description, preferredMethod,
+      // booking data — lưu tạm để tạo booking khi callback
+      movieId, showtimeId, seatUnits, foodItems, promoCode, paymentMethod: pm,
+    } = req.body;
+
+    const userId = Number(req.params.userId || req.user?.id || 0);
+    const requesterId = Number(req.userId || 0);
+
+    if (!requesterId || requesterId !== userId) {
+      return res.status(403).json({ message: 'Bạn chỉ có thể đặt vé bằng chính tài khoản của mình.' });
+    }
+
+    const isCustomer = await ensureCustomerRoleByUserId(userId);
+    if (!isCustomer) {
+      return res.status(403).json({ message: 'Chỉ tài khoản khách hàng mới có quyền đặt vé qua ZaloPay.' });
+    }
+
+    const appId        = process.env.ZALOPAY_APP_ID   || '553';
+    const key1         = process.env.ZALOPAY_KEY1      || '9phuAOYhan4urywHTh0ndEXiV3pKHr5Q';
+    const endpoint     = process.env.ZALOPAY_ENDPOINT || 'https://sb-openapi.zalopay.vn/v2/create';
+    const callbackUrl  = process.env.ZALOPAY_CALLBACK_URL  || '';
+    const redirectUrl  = resolvePaymentRedirectUrl(req);
+
+    const parsedAmount = Math.round(Number(amount || 0)); // ZaloPay yêu cầu integer (VND)
+    if (!parsedAmount || parsedAmount <= 0) {
+      return res.status(400).json({ message: 'Số tiền không hợp lệ.' });
+    }
+    if (!showtimeId || !Array.isArray(seatUnits) || seatUnits.length === 0) {
+      return res.status(400).json({ message: 'Thiếu thông tin suất chiếu hoặc ghế.' });
+    }
+
+    const appTransId = makeAppTransId(appId);
+    const appTime    = Date.now();
+    const appUser    = String(userId || 'sweetstar-user');
+    const note       = String(description || 'SWEETSTAR PAYMENT').trim().slice(0, 256);
+
+    // Lưu booking data vào Pending_Payments (hết hạn sau 15 phút)
+    await db.query(
+      `INSERT INTO Pending_Payments
+         (app_trans_id, user_id, movie_id, showtime_id, seat_units, food_items, promo_code, payment_method, amount, description, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 15 MINUTE))`,
+      [
+        appTransId,
+        userId,
+        Number(movieId || 0) || null,
+        Number(showtimeId),
+        JSON.stringify(Array.isArray(seatUnits) ? seatUnits : []),
+        JSON.stringify(Array.isArray(foodItems) ? foodItems : []),
+        String(promoCode || '').trim().toUpperCase() || null,
+        String(pm || preferredMethod || 'zalopay'),
+        parsedAmount,
+        note,
+      ],
+    );
+
+    const embedDataObj = {
+      redirecturl: redirectUrl,
+      ...(preferredMethod ? { preferred_payment_method: [preferredMethod] } : { preferred_payment_method: [] }),
+    };
+    const embedData = JSON.stringify(embedDataObj);
+
+    const item = JSON.stringify([{
+      itemid:       appTransId,
+      itemname:     note,
+      itemprice:    parsedAmount,  // integer
+      itemquantity: 1,
+    }]);
+
+    // MAC = HMAC-SHA256(key1, app_id|app_trans_id|app_user|amount|app_time|embed_data|item)
+    const macData = `${appId}|${appTransId}|${appUser}|${parsedAmount}|${appTime}|${embedData}|${item}`;
+    const mac = createHmac('sha256', key1).update(macData).digest('hex');
+
+    const payload = {
+      app_id:       Number(appId),
+      app_user:     appUser,
+      app_time:     appTime,
+      amount:       parsedAmount,  // integer
+      app_trans_id: appTransId,
+      embed_data:   embedData,
+      item,
+      description:  note,
+      bank_code:    '',
+      callback_url: callbackUrl,
+      mac,
+    };
+
+    const response = await fetch(endpoint, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
+    });
+
+    const result = await response.json().catch(() => null);
+
+    if (!result || result.return_code !== 1) {
+      // ZaloPay từ chối → xóa pending data
+      await db.query(`DELETE FROM Pending_Payments WHERE app_trans_id = ?`, [appTransId]).catch(() => {});
+      console.error('[ZaloPay] Create order failed:', JSON.stringify(result));
+      console.error('[ZaloPay] Payload sent:', JSON.stringify({ ...payload, mac: '***' }));
+      return res.status(502).json({
+        message: result?.return_message || 'ZaloPay không tạo được đơn hàng.',
+        zlpError: result,
+      });
+    }
+
+    return res.json({
+      orderUrl:     buildGatewayUrl(appId, result.zp_trans_token || result.order_token || ''),
+      qrCode:       result.qr_code       || '',
+      appTransId,
+      zpTransToken: result.zp_trans_token || result.order_token || '',
+    });
+  } catch (err) {
+    console.error('[ZaloPay] Create order error:', err);
+    return res.status(500).json({ message: err.message || 'Không thể tạo đơn hàng ZaloPay.' });
+  }
+});
+
+// ── GET /payments/zalopay/query — Query trạng thái đơn hàng ─────────────────
+// Dùng khi redirect về mà chưa nhận callback
+router.get('/payments/zalopay/query', async (req, res) => {
+  try {
+    const { app_trans_id } = req.query;
+    if (!app_trans_id) {
+      return res.status(400).json({ message: 'Thiếu app_trans_id.' });
+    }
+
+    const result = await queryZaloPayTransaction(String(app_trans_id));
+
+    // Kèm theo booking nếu đã được tạo (callback đã xử lý)
+    let booking = null;
+    try {
+      const [[order]] = await db.query(
+        `SELECT order_id AS booking_id, booking_code, status, payment_status
+         FROM Orders WHERE zalopay_trans_id = ? LIMIT 1`,
+        [String(app_trans_id)],
+      );
+      booking = order || null;
+    } catch (_) {}
+
+    return res.json({ ...(result || { return_code: -1, return_message: 'Không có phản hồi.' }), booking });
+  } catch (err) {
+    console.error('[ZaloPay] Query order error:', err);
+    return res.status(500).json({ message: err.message });
+  }
+});
+
+// ── POST /payments/zalopay/confirm — Tạo booking sau thanh toán ZaloPay (demo) ─
+router.post('/payments/zalopay/confirm', authMiddleware, async (req, res) => {
+  try {
+    await ensurePendingPaymentsTable();
+
+    const { app_trans_id } = req.body;
+    if (!app_trans_id) {
+      return res.status(400).json({ message: 'Thiếu app_trans_id.' });
+    }
+
+    // Kiểm tra đã tạo booking chưa (tránh duplicate)
+    const [[existingOrder]] = await db.query(
+      `SELECT order_id AS booking_id, booking_code, status, payment_status
+       FROM Orders WHERE zalopay_trans_id = ? LIMIT 1`,
+      [String(app_trans_id)],
+    );
+    if (existingOrder) {
+      return res.json({ success: true, booking: existingOrder, alreadyConfirmed: true });
+    }
+
+    // Lấy pending data
+    const [[pending]] = await db.query(
+      `SELECT * FROM Pending_Payments WHERE app_trans_id = ? AND expires_at > NOW()`,
+      [String(app_trans_id)],
+    );
+    if (!pending) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy thông tin đặt vé.' });
+    }
+
+    if (Number(req.userId || 0) !== Number(pending.user_id)) {
+      return res.status(403).json({ success: false, message: 'Bạn không có quyền xác nhận giao dịch này.' });
+    }
+
+    // Only create a booking after ZaloPay has confirmed a successful payment.
+    const paymentResult = await queryZaloPayTransaction(String(app_trans_id));
+    if (Number(paymentResult?.return_code) !== 1) {
+      return res.status(409).json({
+        success: false,
+        pending: Number(paymentResult?.return_code) === 3,
+        message: paymentResult?.return_message || 'ZaloPay chưa xác nhận giao dịch thành công.',
+      });
+    }
+
+    const isCustomer = await ensureCustomerRoleByUserId(Number(pending.user_id));
+    if (!isCustomer) {
+      await db.query(`DELETE FROM Pending_Payments WHERE app_trans_id = ?`, [String(app_trans_id)]).catch(() => {});
+      return res.status(403).json({ success: false, message: 'Tài khoản này không có quyền đặt vé.' });
+    }
+
+    // Tạo booking (demo — không verify ZaloPay)
+    const seatUnits = JSON.parse(pending.seat_units || '[]');
+    const foodItems = JSON.parse(pending.food_items || '[]');
+
+    const booking = await BookingModel.createUserBooking({
+      userId:        Number(pending.user_id),
+      showtimeId:    Number(pending.showtime_id),
+      seatUnits,
+      foodItems,
+      promoCode:     pending.promo_code,
+      paymentMethod: 'zalopay',
+    });
+
+    await BookingModel.confirmCardPayment({
+      orderId: booking.booking_id,
+      userId: Number(pending.user_id),
+    });
+
+    // Mark paid + lưu app_trans_id
+    await db.query(
+      `UPDATE Orders SET status = 'confirmed', payment_status = 'paid', zalopay_trans_id = ?
+       WHERE booking_code = ?`,
+      [String(app_trans_id), String(booking.booking_code || '')],
+    );
+
+    // Cộng điểm
+
+    // Xóa pending data
+    await db.query(`DELETE FROM Pending_Payments WHERE app_trans_id = ?`, [String(app_trans_id)]).catch(() => {});
+
+    const [[finalBooking]] = await db.query(
+      `SELECT order_id AS booking_id, booking_code, status, payment_status
+       FROM Orders WHERE booking_code = ? LIMIT 1`,
+      [String(booking.booking_code || '')],
+    );
+
+    try {
+      const fullBooking = await BookingModel.findById(Number(finalBooking?.booking_id || booking.booking_id || 0), { includeTicketQr: true });
+      if (fullBooking) {
+        await sendBookingSuccessNotification({
+          userId: Number(pending.user_id),
+          booking: fullBooking,
+        });
+      }
+    } catch (notifyError) {
+      console.warn('[ZaloPay] Booking notification send failed (confirm):', notifyError.message);
+    }
+
+    let emailSent = false;
+    try {
+      const fullBooking = await BookingModel.findById(Number(finalBooking?.booking_id || booking.booking_id || 0), { includeTicketQr: true });
+      if (fullBooking) {
+        const emailResult = await sendTicketQrEmail(fullBooking);
+        emailSent = Boolean(emailResult?.sent);
+      }
+    } catch (mailError) {
+      console.warn('[ZaloPay] Ticket email send failed (confirm):', mailError.message);
+    }
+
+    return res.json({ success: true, booking: finalBooking || booking, emailSent });
+  } catch (err) {
+    console.error('[ZaloPay] Confirm error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── POST /payments/zalopay/callback — Nhận IPN từ ZaloPay Server ─────────────
+// ZaloPay gọi endpoint này khi thanh toán thành công
+// Không cần auth — nhưng phải verify MAC bằng key2
+router.post('/payments/zalopay/callback', async (req, res) => {
+  try {
+    await ensurePendingPaymentsTable();
+
+    const key2 = process.env.ZALOPAY_KEY2 || 'Iyz2habzyr7AG8SgvoBCbKwKi3UzlLi3';
+    const { data: dataStr, mac: receivedMac } = req.body;
+
+    // Verify MAC
+    const expectedMac = createHmac('sha256', key2).update(dataStr).digest('hex');
+    if (expectedMac !== receivedMac) {
+      console.warn('[ZaloPay] Callback MAC mismatch');
+      return res.json({ return_code: -1, return_message: 'MAC không hợp lệ.' });
+    }
+
+    const callbackData = JSON.parse(dataStr);
+    const { app_trans_id, amount } = callbackData;
+
+    console.log(`[ZaloPay] ✅ Callback — app_trans_id: ${app_trans_id}, amount: ${amount}`);
+
+    // Lấy pending data
+    const [[pending]] = await db.query(
+      `SELECT * FROM Pending_Payments WHERE app_trans_id = ? AND expires_at > NOW()`,
+      [String(app_trans_id || '')],
+    );
+
+    if (!pending) {
+      // Có thể callback trùng lặp hoặc đã xử lý — kiểm tra xem booking đã tồn tại chưa
+      const [[existingOrder]] = await db.query(
+        `SELECT order_id FROM Orders WHERE zalopay_trans_id = ? LIMIT 1`,
+        [String(app_trans_id || '')],
+      );
+      if (existingOrder) {
+        console.log(`[ZaloPay] Callback duplicate — order already exists for ${app_trans_id}`);
+        return res.json({ return_code: 1, return_message: 'Success.' });
+      }
+      console.warn(`[ZaloPay] No pending payment found for ${app_trans_id}`);
+      return res.json({ return_code: 1, return_message: 'Success.' }); // trả 1 để ZaloPay không retry
+    }
+
+    const isCustomer = await ensureCustomerRoleByUserId(Number(pending.user_id));
+    if (!isCustomer) {
+      console.warn(`[ZaloPay] Forbidden booking role for user ${pending.user_id}`);
+      await db.query(`DELETE FROM Pending_Payments WHERE app_trans_id = ?`, [String(app_trans_id)]).catch(() => {});
+      return res.json({ return_code: 1, return_message: 'Success.' });
+    }
+
+    // Tạo booking thật
+    const seatUnits  = JSON.parse(pending.seat_units  || '[]');
+    const foodItems  = JSON.parse(pending.food_items  || '[]');
+
+    const booking = await BookingModel.createUserBooking({
+      userId:        Number(pending.user_id),
+      showtimeId:    Number(pending.showtime_id),
+      seatUnits,
+      foodItems,
+      promoCode:     pending.promo_code,
+      paymentMethod: 'zalopay',
+    });
+
+    await BookingModel.confirmCardPayment({
+      orderId: booking.booking_id,
+      userId: Number(pending.user_id),
+    });
+
+    // Đánh dấu paid ngay + lưu app_trans_id
+    await db.query(
+      `UPDATE Orders
+         SET status = 'confirmed', payment_status = 'paid', zalopay_trans_id = ?
+       WHERE booking_code = ?`,
+      [String(app_trans_id), String(booking.booking_code || '')],
+    );
+
+    // Cộng điểm (vì createUserBooking chỉ cộng khi cash/cashier)
+    // Gọi confirmCardPayment tái dụng logic cộng điểm
+
+    // Xóa pending data
+    await db.query(`DELETE FROM Pending_Payments WHERE app_trans_id = ?`, [String(app_trans_id)]).catch(() => {});
+
+    try {
+      const fullBooking = await BookingModel.findById(Number(booking.booking_id || 0), { includeTicketQr: true });
+      if (fullBooking) {
+        try {
+          await sendBookingSuccessNotification({
+            userId: Number(pending.user_id),
+            booking: fullBooking,
+          });
+        } catch (notifyError) {
+          console.warn('[ZaloPay] Booking notification send failed (callback):', notifyError.message);
+        }
+
+        await sendTicketQrEmail(fullBooking);
+      }
+    } catch (mailError) {
+      console.warn('[ZaloPay] Ticket email send failed (callback):', mailError.message);
+    }
+
+    return res.json({ return_code: 1, return_message: 'Success.' });
+  } catch (err) {
+    console.error('[ZaloPay] Callback error:', err);
+    return res.json({ return_code: -1, return_message: err.message });
+  }
+});
+
+export default router;

@@ -1,0 +1,235 @@
+import { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { FaCalendarAlt, FaClock, FaEye, FaShareAlt, FaTag } from "react-icons/fa";
+import { userNewsService } from "../../services/userApi";
+import { toAbsoluteAssetUrl } from "../../../utils/api";
+import "./NewsDetail.css";
+
+const CATEGORY_LABELS = {
+  movie_news: "Tin điện ảnh",
+  promotion: "Khuyến mãi",
+  event: "Sự kiện",
+  coming_soon: "Sắp chiếu",
+  review: "Review",
+  announcement: "Thông báo",
+};
+
+const formatDate = (value) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("vi-VN");
+};
+
+const readTime = (content = "") => {
+  const words = String(content).trim().split(/\s+/).filter(Boolean).length;
+  return `${Math.max(1, Math.ceil(words / 180))} phút đọc`;
+};
+
+const normalizeAssetPath = (value = "") => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+
+  try {
+    const parsed = new URL(text, window.location.origin);
+    return decodeURIComponent(parsed.pathname).replace(/\\/g, "/").toLowerCase();
+  } catch {
+    return decodeURIComponent(text.split("?")[0].split("#")[0])
+      .replace(/\\/g, "/")
+      .toLowerCase();
+  }
+};
+
+const removeThumbnailFromBody = (html, thumbnail) => {
+  const content = String(html || "");
+  if (!content || !thumbnail || typeof window === "undefined") {
+    return content;
+  }
+
+  const normalizedThumbnail = normalizeAssetPath(thumbnail);
+  if (!normalizedThumbnail) return content;
+
+  try {
+    const parser = new window.DOMParser();
+    const doc = parser.parseFromString(content, "text/html");
+    doc.querySelectorAll("img").forEach((img) => {
+      const src = img.getAttribute("src") || "";
+      if (normalizeAssetPath(src) === normalizedThumbnail) {
+        img.remove();
+      }
+    });
+    return doc.body.innerHTML;
+  } catch {
+    return content;
+  }
+};
+
+export default function NewsDetail() {
+  const { slug } = useParams();
+  const [article, setArticle] = useState(null);
+  const [related, setRelated] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [shareMessage, setShareMessage] = useState("");
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [slug]);
+
+  useEffect(() => {
+    const loadDetail = async () => {
+      setLoading(true);
+      setError("");
+
+      try {
+        const data = await userNewsService.getBySlug(slug);
+        setArticle(data?.article || null);
+        setRelated(Array.isArray(data?.related) ? data.related : []);
+      } catch (err) {
+        console.error(err);
+        setError(err.message || "Không thể tải chi tiết bài viết.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (slug) {
+      loadDetail();
+    }
+  }, [slug]);
+
+  const categoryLabel = useMemo(
+    () => CATEGORY_LABELS[article?.category] || article?.category || "Tin tức",
+    [article],
+  );
+
+  const articleContentHtml = useMemo(
+    () => removeThumbnailFromBody(article?.content || "", article?.thumbnail || ""),
+    [article?.content, article?.thumbnail],
+  );
+
+  const handleShare = async () => {
+    const shareUrl = window.location.href;
+    const shareData = { title: article.title, text: article.short_description || article.title, url: shareUrl };
+
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+        setShareMessage("Đã mở chia sẻ.");
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        setShareMessage("Đã sao chép liên kết.");
+      }
+    } catch (shareError) {
+      if (shareError?.name !== "AbortError") {
+        setShareMessage("Không thể chia sẻ bài viết.");
+      }
+    }
+
+    window.setTimeout(() => setShareMessage(""), 2500);
+  };
+
+  if (loading) {
+    return (
+      <div className="news-detail-page">
+        <div className="news-detail-empty">Đang tải bài viết...</div>
+      </div>
+    );
+  }
+
+  if (error || !article) {
+    return (
+      <div className="news-detail-page">
+        <div className="news-detail-empty">{error || "Không tìm thấy bài viết."}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="news-detail-page">
+      <div className="news-detail-breadcrumb">
+        <Link to="/">Trang chủ</Link>
+        <span>›</span>
+        <Link to="/news">Tin tức</Link>
+        <span>›</span>
+        <strong>{article.title}</strong>
+      </div>
+
+      <article className="news-detail-article">
+        <header className="news-detail-header">
+          <div className="news-detail-badges">
+            <span className="news-detail-category">
+              <FaTag /> {categoryLabel}
+            </span>
+          </div>
+          <h1>{article.title}</h1>
+          <div dangerouslySetInnerHTML={{ __html: article.short_description || "Bài viết đang được cập nhật mô tả ngắn." }} />
+
+          <div className="news-detail-meta">
+            <span>
+              <FaCalendarAlt /> {formatDate(article.published_at || article.created_at)}
+            </span>
+            <span>
+              <FaEye /> {Number(article.view_count || 0).toLocaleString("vi-VN")} lượt xem
+            </span>
+            <span>
+              <FaClock /> {readTime(article.content)}
+            </span>
+            <span>Tác giả: {article.author_name || "Sweetstar Movie"}</span>
+          </div>
+          <div className="news-detail-actions">
+            <button type="button" className="news-detail-share" onClick={handleShare}>
+              <FaShareAlt aria-hidden="true" />
+              Chia sẻ bài viết
+            </button>
+            {shareMessage && <span className="news-detail-share-message" role="status">{shareMessage}</span>}
+          </div>
+        </header>
+
+        {article.thumbnail && (
+          <div className="news-detail-cover-wrap">
+            <img
+              className="news-detail-cover"
+              src={toAbsoluteAssetUrl(article.thumbnail)}
+              alt={article.title}
+            />
+          </div>
+        )}
+
+        <div className="news-detail-content">
+          <div dangerouslySetInnerHTML={{ __html: articleContentHtml }} />
+        </div>
+      </article>
+
+      <section className="news-detail-related">
+        <div className="news-detail-related-header">
+          <h2>Bài viết liên quan</h2>
+          <Link to="/news">Xem tất cả</Link>
+        </div>
+
+        <div className="news-detail-related-grid">
+          {related.length === 0 ? (
+            <div className="news-detail-empty">Chưa có bài viết liên quan.</div>
+          ) : (
+            related.map((item) => (
+              <Link key={item.news_id} to={`/news/${item.slug}`} className="news-detail-related-card">
+                <div className="news-detail-related-thumb">
+                  {item.thumbnail ? (
+                    <img src={toAbsoluteAssetUrl(item.thumbnail)} alt={item.title} />
+                  ) : (
+                    <span>📰</span>
+                  )}
+                </div>
+                <div className="news-detail-related-body">
+                  <span>{CATEGORY_LABELS[item.category] || item.category}</span>
+                  <strong>{item.title}</strong>
+                  <p>{item.short_description || "Khám phá thêm bài viết này."}</p>
+                </div>
+              </Link>
+            ))
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}

@@ -1,0 +1,316 @@
+.pr-page {
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 16px;
+}
+
+/* Loading */
+.pr-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  color: #94a3b8;
+  font-size: 0.95rem;
+}
+
+.pr-spinner {
+  font-size: 2rem;
+  color: #a78bfa;
+  animation: pr-spin 1s linear infinite;
+}
+
+@keyframes pr-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Card */
+.pr-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 24px;
+  padding: 2.2rem 2rem;
+  max-width: 480px;
+  width: 100%;
+  text-align: center;
+  color: #dbe6ff;
+}
+
+.pr-card.success { border-color: rgba(52, 211, 153, 0.3); }
+.pr-card.fail    { border-color: rgba(239, 68, 68, 0.3); }
+
+/* Icon */
+.pr-icon-ring {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1.2rem;
+}
+
+.pr-icon-ring.success { background: rgba(52, 211, 153, 0.15); }
+.pr-icon-ring.fail    { background: rgba(239, 68, 68, 0.15); }
+
+.pr-icon {
+  font-size: 2.2rem;
+}
+
+.pr-icon.success { color: #34d399; }
+.pr-icon.fail    { color: #ef4444; }
+
+/* Title */
+.pr-title {
+  margin: 0 0 0.4rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.pr-sub {
+  margin: 0 0 1.4rem;
+  font-size: 0.9rem;
+  color: #94a3b8;
+  line-height: 1.5;
+}
+
+/* Ticket */
+.pr-ticket {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 1rem 1.2rem;
+  text-align: left;
+  margin-bottom: 1.2rem;
+}
+
+.pr-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  font-size: 0.875rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.pr-row:last-child { border-bottom: none; }
+
+.pr-row span { color: #94a3b8; white-space: nowrap; }
+.pr-row strong { color: #dbe6ff; text-align: right; max-width: 60%; word-break: break-all; }
+
+.pr-code  { color: #a78bfa !important; letter-spacing: 0.04em; }
+.pr-trans { font-size: 0.78rem !important; }
+
+.pr-divider {
+  border-top: 1.5px dashed rgba(255, 255, 255, 0.1);
+  margin: 0.5rem 0;
+}
+
+.pr-row.total span   { font-weight: 600; color: #cbd5e1; }
+.pr-amount { color: #a78bfa !important; font-size: 1.05rem !important; }
+
+/* Points */
+.pr-points {
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 12px;
+  padding: 0.65rem 1rem;
+  font-size: 0.875rem;
+  color: #fef3c7;
+  margin-bottom: 1.2rem;
+}
+
+.pr-points strong { color: #fbbf24; }
+
+/* Actions */
+.pr-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.pr-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.65rem 1.3rem;
+  border-radius: 12px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.15s;
+}
+
+.pr-btn.primary {
+  background: linear-gradient(135deg, #7c3aed, #4f46e5);
+  color: #fff;
+}
+
+.pr-btn.ghost {
+  background: rgba(255, 255, 255, 0.07);
+  color: #cbd5e1;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.pr-btn:hover { opacity: 0.82; }
+
+/* Waiting state */
+.pr-card.waiting { border-color: rgba(251, 191, 36, 0.3); }
+
+.pr-icon-ring.waiting { background: rgba(251, 191, 36, 0.15); }
+
+.pr-icon.waiting-icon { color: #fbbf24; font-size: 2.2rem; }
+
+.pr-error-msg {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 10px;
+  padding: 0.7rem 1rem;
+  font-size: 0.875rem;
+  color: #fca5a5;
+  margin-bottom: 1rem;
+  text-align: left;
+}
+
+.pr-zalopay-qr {
+  margin: 0 0 1.2rem;
+  padding: 1.2rem;
+  border: 1px solid rgba(0, 104, 255, 0.35);
+  border-radius: 18px;
+  background: rgba(0, 104, 255, 0.08);
+}
+
+.pr-zalopay-label {
+  display: inline-block;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  background: #0068ff;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.pr-zalopay-qr h2 {
+  margin: 0.65rem 0 0.9rem;
+  color: #fff;
+  font-size: 1.05rem;
+}
+
+.pr-zalopay-qr img,
+.pr-qr-loading {
+  display: flex;
+  width: min(260px, 100%);
+  aspect-ratio: 1;
+  margin: 0 auto 0.8rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: #fff;
+  padding: 8px;
+}
+
+.pr-zalopay-qr > strong {
+  display: block;
+  color: #60a5fa;
+  font-size: 1.25rem;
+}
+
+.pr-zalopay-qr p {
+  margin: 0.55rem 0 0;
+  color: #cbd5e1;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.pr-open-zalopay {
+  display: inline-flex;
+  margin-top: 0.8rem;
+  color: #93c5fd;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.pr-btn.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.pr-spin-sm {
+  font-size: 0.9rem;
+  animation: pr-spin 1s linear infinite;
+  margin-right: 6px;
+}
+
+@media (max-width: 640px) {
+  html:has(.pr-page),
+  body:has(.pr-page),
+  #root:has(.pr-page),
+  .user-layout:has(.pr-page),
+  .main-content:has(.pr-page) {
+    width: 100%;
+    max-width: 100vw;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .user-layout .pr-page,
+  .user-layout .pr-page * {
+    box-sizing: border-box;
+  }
+
+  .user-layout .pr-page {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    padding: 20px 12px 48px;
+    overflow-x: clip;
+  }
+
+  .user-layout .pr-card,
+  .user-layout .pr-ticket {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .user-layout .pr-card {
+    padding: 1.4rem 1rem;
+    border-radius: 18px;
+  }
+
+  .user-layout .pr-row {
+    display: grid;
+    grid-template-columns: minmax(82px, auto) minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .user-layout .pr-row span {
+    white-space: normal;
+  }
+
+  .user-layout .pr-row strong {
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .user-layout .pr-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .user-layout .pr-actions > * {
+    width: 100%;
+    justify-content: center;
+  }
+}

@@ -1,0 +1,38 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Local environment files may contain API keys, passwords and payment secrets.
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Local diagnostics and generated scratch files
+.dbg/
+tmp/
+
+# Uploaded runtime media stays outside Git; store it separately in production.
+backend/uploads/
